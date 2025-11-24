@@ -1,0 +1,366 @@
+import React, { useState, useEffect, createContext, useContext } from 'react';
+
+// ShoppingSite - Single-file React component (Tailwind CSS required in the parent project)
+// Features:
+// - Product catalog (accessories, clothing, other goods/services)
+// - Inline SVG product images included as React components
+// - Cart with add/remove/update, persisted to localStorage
+// - Simple mock checkout modal (replace with real payment provider - Stripe/Paystack examples in comments)
+
+const PRODUCTS = [
+  {
+    id: 'acc-1',
+    title: 'Leather Wallet',
+    price: 4500,
+    category: 'Accessories',
+    image: 'WALLET',
+    description: 'Sleek genuine leather wallet.'
+  },
+  {
+    id: 'cloth-1',
+    title: 'Classic Tee (Unisex)',
+    price: 3500,
+    category: 'Clothing',
+    image: 'TEE',
+    description: 'Comfortable cotton t-shirt.'
+  },
+  {
+    id: 'srv-1',
+    title: 'Home Cleaning Service (1hr)',
+    price: 8000,
+    category: 'Services',
+    image: 'SERVICE',
+    description: 'Professional one-hour home clean.'
+  },
+  {
+    id: 'acc-2',
+    title: 'Sunglasses',
+    price: 6000,
+    category: 'Accessories',
+    image: 'SUN',
+    description: 'UV-protection stylish sunglasses.'
+  },
+  {
+    id: 'cloth-2',
+    title: 'Denim Jacket',
+    price: 12000,
+    category: 'Clothing',
+    image: 'JACKET',
+    description: 'Stylish mid-weight denim jacket.'
+  }
+];
+
+// --- Simple SVG placeholders as React components ---
+function SvgImage({ name, className = 'w-full h-40 object-cover' }) {
+  switch (name) {
+    case 'WALLET':
+      return (
+        <svg className={className} viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" rx="8" fill="#FDE68A" />
+          <rect x="8" y="18" width="96" height="44" rx="6" fill="#92400E" />
+          <circle cx="96" cy="40" r="6" fill="#FDE68A" />
+        </svg>
+      );
+    case 'TEE':
+      return (
+        <svg className={className} viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" rx="8" fill="#BFDBFE" />
+          <path d="M20 24 L36 18 L48 24 L72 24 L84 18 L100 24 L92 60 L28 60 Z" fill="#1E3A8A" />
+        </svg>
+      );
+    case 'SERVICE':
+      return (
+        <svg className={className} viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" rx="8" fill="#D1FAE5" />
+          <g transform="translate(16,14)">
+            <rect width="88" height="16" rx="3" fill="#065F46" />
+            <rect y="22" width="88" height="10" rx="3" fill="#10B981" />
+            <rect y="36" width="88" height="10" rx="3" fill="#34D399" />
+          </g>
+        </svg>
+      );
+    case 'SUN':
+      return (
+        <svg className={className} viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" rx="8" fill="#FEF3C7" />
+          <ellipse cx="60" cy="40" rx="28" ry="12" fill="#111827" opacity="0.85" />
+          <rect x="36" y="28" width="48" height="4" rx="2" fill="#FDE68A" />
+        </svg>
+      );
+    case 'JACKET':
+      return (
+        <svg className={className} viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" rx="8" fill="#E0E7FF" />
+          <path d="M20 60 L40 36 L58 38 L62 26 L80 38 L100 60 Z" fill="#1E293B" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
+
+// --- Cart context ---
+const CartContext = createContext();
+
+function useCart() {
+  return useContext(CartContext);
+}
+
+function CartProvider({ children }) {
+  const [items, setItems] = useState(() => {
+    try {
+      const raw = localStorage.getItem('shop_cart');
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('shop_cart', JSON.stringify(items));
+  }, [items]);
+
+  function add(productId, qty = 1) {
+    setItems(prev => {
+      const next = { ...prev };
+      next[productId] = (next[productId] || 0) + qty;
+      return next;
+    });
+  }
+  function remove(productId) {
+    setItems(prev => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  }
+  function update(productId, qty) {
+    setItems(prev => {
+      const next = { ...prev };
+      if (qty <= 0) delete next[productId];
+      else next[productId] = qty;
+      return next;
+    });
+  }
+  function clear() {
+    setItems({});
+  }
+
+  const value = { items, add, remove, update, clear };
+  return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+}
+
+// --- Helpers ---
+function formatNaira(n) {
+  return `₦${n.toLocaleString()}`;
+}
+
+function getCartDetails(items) {
+  const lines = Object.entries(items).map(([id, qty]) => {
+    const p = PRODUCTS.find(x => x.id === id);
+    return { ...p, qty, lineTotal: p.price * qty };
+  });
+  const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
+  const shipping = subtotal > 15000 || subtotal === 0 ? 0 : 800; // simple rule
+  const total = subtotal + shipping;
+  return { lines, subtotal, shipping, total };
+}
+
+// --- Main UI components ---
+function ProductCard({ product }) {
+  const { add } = useCart();
+  return (
+    <div className="bg-white rounded-2xl shadow p-4 flex flex-col">
+      <div className="mb-3 rounded overflow-hidden">
+        <SvgImage name={product.image} />
+      </div>
+      <div className="flex-1">
+        <h3 className="font-semibold text-lg">{product.title}</h3>
+        <p className="text-sm text-gray-500">{product.category}</p>
+        <p className="mt-2 text-gray-700">{product.description}</p>
+      </div>
+      <div className="mt-4 flex items-center justify-between">
+        <div className="text-lg font-bold">{formatNaira(product.price)}</div>
+        <button onClick={() => add(product.id)} className="px-3 py-1 rounded-xl bg-indigo-600 text-white text-sm">Add</button>
+      </div>
+    </div>
+  );
+}
+
+function CartSidebar({ onCheckout }) {
+  const { items, update, remove, clear } = useCart();
+  const { lines, subtotal, shipping, total } = getCartDetails(items);
+
+  return (
+    <div className="w-96 bg-gray-50 p-4 h-full border-l">
+      <h2 className="font-bold text-xl mb-4">Cart</h2>
+      {lines.length === 0 ? (
+        <div className="text-gray-500">Your cart is empty</div>
+      ) : (
+        <div className="space-y-3">
+          {lines.map(line => (
+            <div key={line.id} className="bg-white p-3 rounded shadow-sm flex items-center">
+              <div className="w-16 mr-3"><SvgImage name={line.image} className="w-full h-12" /></div>
+              <div className="flex-1">
+                <div className="font-semibold">{line.title}</div>
+                <div className="text-sm text-gray-500">{formatNaira(line.price)} • {line.qty} pcs</div>
+                <div className="mt-2 flex items-center gap-2">
+                  <input type="number" min="0" value={line.qty} onChange={e => update(line.id, Number(e.target.value))} className="w-20 border rounded p-1 text-sm" />
+                  <button className="text-sm text-red-600" onClick={() => remove(line.id)}>Remove</button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div className="bg-white p-3 rounded">
+            <div className="flex justify-between"><div>Subtotal</div><div>{formatNaira(subtotal)}</div></div>
+            <div className="flex justify-between"><div>Shipping</div><div>{shipping === 0 ? 'Free' : formatNaira(shipping)}</div></div>
+            <hr className="my-2" />
+            <div className="flex justify-between font-bold text-lg"><div>Total</div><div>{formatNaira(total)}</div></div>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={() => onCheckout({ total })} className="flex-1 bg-green-600 text-white rounded-xl py-2">Checkout</button>
+            <button onClick={clear} className="flex-1 bg-gray-200 rounded-xl py-2">Clear</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CheckoutModal({ open, onClose, amount, onSuccess }) {
+  const [processing, setProcessing] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [card, setCard] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setProcessing(false);
+      setName(''); setEmail(''); setCard('');
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  async function handlePay(e) {
+    e.preventDefault();
+    setProcessing(true);
+    // --- MOCK payment flow (for demo) ---
+    await new Promise(r => setTimeout(r, 1200));
+    setProcessing(false);
+    onSuccess({ id: `MOCK-${Date.now()}`, amount });
+    onClose();
+
+    // --- To integrate with Stripe Checkout / Paystack: ---
+    // Option 1: Stripe Checkout (recommended for production)
+    // 1) Create a server endpoint that creates a Checkout Session with Stripe secret key
+    // 2) From the client redirect to the session URL:
+    //    fetch('/create-checkout-session', {method:'POST', body:JSON.stringify({items})})
+    //    const { url } = await res.json(); window.location = url;
+
+    // Option 2: Paystack (popular in Nigeria)
+    // Use Paystack inline JS to open payment popup with a transaction reference from your backend.
+
+    // Replace the mock above with real integration in production.
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl w-96 p-6 shadow-lg">
+        <h3 className="text-xl font-bold mb-2">Checkout</h3>
+        <p className="text-sm text-gray-600 mb-4">Total: <span className="font-semibold">{formatNaira(amount)}</span></p>
+        <form onSubmit={handlePay} className="space-y-3">
+          <input required value={name} onChange={e => setName(e.target.value)} placeholder="Full name" className="w-full border rounded p-2" />
+          <input required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" className="w-full border rounded p-2" />
+          <input required value={card} onChange={e => setCard(e.target.value)} placeholder="Card / Mock ref" className="w-full border rounded p-2" />
+          <div className="flex gap-2">
+            <button type="submit" disabled={processing} className="flex-1 bg-indigo-600 text-white py-2 rounded-xl">{processing ? 'Processing...' : 'Pay Now'}</button>
+            <button type="button" onClick={onClose} className="flex-1 border rounded-xl py-2">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function ShoppingApp() {
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutAmount, setCheckoutAmount] = useState(0);
+  const [lastOrder, setLastOrder] = useState(null);
+
+  function handleCheckout({ total }) {
+    setCheckoutAmount(total);
+    setCheckoutOpen(true);
+  }
+
+  function handleSuccess(order) {
+    setLastOrder(order);
+    // After successful payment, you may want to clear cart. We'll keep cart clearing on success handled by cart provider consumer.
+    // For demo, clear cart via dispatch through localStorage or event. Simpler: emit custom event.
+    window.dispatchEvent(new CustomEvent('order:success', { detail: order }));
+  }
+
+  return (
+    <CartProvider>
+      <div className="min-h-screen bg-gray-100">
+        <header className="bg-white p-4 shadow sticky top-0 z-20">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <h1 className="text-2xl font-bold">Shoply — Demo Store</h1>
+            <div className="text-sm text-gray-600">Simple shopping site demo</div>
+          </div>
+        </header>
+
+        <main className="max-w-6xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-[1fr_24rem] gap-6">
+          <section>
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-xl font-bold">Products</h2>
+              <div className="text-sm text-gray-500">{PRODUCTS.length} items</div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {PRODUCTS.map(p => (
+                <ProductCard key={p.id} product={p} />
+              ))}
+            </div>
+          </section>
+
+          <aside>
+            <CartSidebar onCheckout={handleCheckout} />
+          </aside>
+        </main>
+
+        <CheckoutModal open={checkoutOpen} amount={checkoutAmount} onClose={() => setCheckoutOpen(false)} onSuccess={(order) => {
+          setCheckoutOpen(false);
+          setLastOrder(order);
+          // clear cart when we get a success event
+          window.localStorage.removeItem('shop_cart');
+          // notify CartProvider to re-sync
+          window.dispatchEvent(new Event('cart:sync'));
+        }} />
+
+        {lastOrder && (
+          <div className="fixed bottom-6 right-6 bg-white p-3 rounded-xl shadow-md">
+            <div className="font-semibold">Last order: {lastOrder.id}</div>
+            <div className="text-sm text-gray-600">Amount: {formatNaira(lastOrder.amount)}</div>
+          </div>
+        )}
+      </div>
+    </CartProvider>
+  );
+}
+
+// Note: To run this:
+// 1) Create a React app (Vite or CRA) and add TailwindCSS following Tailwind docs.
+// 2) Copy this file into src/ShoppingApp.jsx and import it in src/main.jsx -> <ShoppingApp />
+// 3) Replace mock checkout with a real payment provider (Stripe or Paystack) before taking real money.
+
+// Quick Paystack integration notes (Nigeria):
+// - Create a backend endpoint that initializes a transaction with your secret key and amount.
+// - From the frontend open Paystack inline with the authorization/txref or redirect to payment page.
+// - Verify transaction on your server before fulfilling orders.
+
+// Quick Stripe Checkout notes:
+// - Server: create a Checkout Session and return session.url
+// - Client: redirect to that URL
+// - Webhooks: use Stripe webhooks to confirm completed payments and then fulfill order
